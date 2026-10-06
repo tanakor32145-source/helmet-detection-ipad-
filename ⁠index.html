@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบตรวจจับหมวกกันน็อคบน iPad</title>
+    <!-- โหลด Roboflow JS SDK -->
+    <script src="https://cdn.roboflow.com/0.2.26/roboflow.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #1e1e2e;
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            position: relative;
+            display: inline-block;
+            margin-top: 15px;
+        }
+        video, canvas {
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        #status {
+            font-size: 1.2rem;
+            margin-top: 10px;
+            color: #00ffcc;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>ระบบตรวจจับหมวกกันน็อค (Helmet Detection)</h2>
+    <div id="status">กำลังโหลดโมเดล... กรุณารอสักครู่</div>
+
+    <div class="container">
+        <video id="video" width="640" height="480" autoplay playsinline muted></video>
+        <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
+
+    <script>
+        // *** 1. ตั้งค่าข้อมูลจาก Roboflow ของคุณที่นี่ ***
+        const API_KEY = "OYpTXmfibPoQfRNwVJOm"; // ใส่ API Key ของคุณ
+        const MODEL_ID = "helmet-detection-nk8le";
+		  const MODEL_VERSION = 2;
+
+
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const statusDiv = document.getElementById("status");
+
+        // *** 2. เปิดใช้งานกล้อง ***
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment", width: 640, height: 480 },
+                    audio: false
+                });
+                video.srcObject = stream;
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => resolve();
+                });
+            } catch (err) {
+                alert("ไม่สามารถเข้าถึงกล้องได้: " + err.message);
+            }
+        }
+
+        // *** 3. โหลดโมเดล และทำ Prediction ***
+        async function run() {
+            await setupCamera();
+            statusDiv.innerText = "กำลังเชื่อมต่อโมเดล Roboflow...";
+
+            // โหลดโมเดลจาก Roboflow
+            roboflow.auth({
+                publishable_key: API_KEY
+            }).load({
+                model: MODEL_ID,
+                version: MODEL_VERSION
+            }).then(model => {
+                statusDiv.innerText = "ระบบพร้อมทำงานแล้ว!";
+                
+                // ตรวจจับภาพทุกๆ 200 มิลลิวินาที
+                setInterval(async () => {
+                    const predictions = await model.detect(video);
+                    drawBoundingBoxes(predictions);
+                }, 200);
+            }).catch(err => {
+                statusDiv.innerText = "เกิดข้อผิดพลาดในการโหลดโมเดล: " + err.message;
+            });
+        }
+
+        // *** 4. วาดกล่อง Bounding Box ทับลงบนภาพ ***
+        function drawBoundingBoxes(predictions) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            predictions.forEach(prediction => {
+                const x = prediction.bbox.x - prediction.bbox.width / 2;
+                const y = prediction.bbox.y - prediction.bbox.height / 2;
+                const width = prediction.bbox.width;
+                const height = prediction.bbox.height;
+                const label = prediction.class;
+                const score = (prediction.confidence * 100).toFixed(1);
+
+                // เปลี่ยนสีกล่องตามคลาสที่จับได้
+                if (label.toLowerCase().includes("helmet") || label.toLowerCase().includes("with_helmet")) {
+                    ctx.strokeStyle = "#00FF00"; // สีเขียว = ใส่หมวก
+                    ctx.fillStyle = "#00FF00";
+                } else {
+                    ctx.strokeStyle = "#FF0000"; // สีแดง = ไม่ใส่หมวก
+                    ctx.fillStyle = "#FF0000";
+                }
+
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, width, height);
+
+                // แสดงข้อความ Label บนกล่อง
+                ctx.font = "16px Arial";
+                ctx.fillText(`${label} (${score}%)`, x, y > 10 ? y - 5 : 10);
+            });
+        }
+
+        run();
+    </script>
+</body>
+</html>
